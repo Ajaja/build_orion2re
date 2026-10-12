@@ -1,0 +1,78 @@
+name: Build orion2re (MSYS2 CLANG64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      # Clone orion2re with all vendored submodules (SDL, libuv, lz4, miniz,
+      # yyjson, lua, imgui, ...). The CMakeLists.txt fails without them.
+      - name: Clone orion2re
+        uses: actions/checkout@v4
+        with:
+          repository: orion2re/orion2re
+          submodules: recursive
+          path: orion2re
+
+      - name: Setup MSYS2 CLANG64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            git
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+
+      - name: Configure
+        working-directory: orion2re
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DORION2RE_WINDOWS_ARCH=x64 \
+            -DORION2RE_BUILD_TESTS=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -s" \
+            -DCMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG"
+
+      - name: Build
+        working-directory: orion2re
+        run: cmake --build build --parallel
+
+      - name: Verify executables are static and stripped
+        working-directory: orion2re/build
+        run: |
+          for exe in orion2re.exe orion2re-router.exe; do
+            echo "=== $exe ==="
+            ls -lh "$exe"
+            echo "Imported DLLs:"
+            objdump -p "$exe" | grep "DLL Name" || true
+            if objdump -p "$exe" | grep -Eiq "libc\+\+|libunwind|libwinpthread|libgcc|libstdc\+\+"; then
+              echo "::error::$exe still depends on MinGW runtime DLLs"
+              exit 1
+            fi
+          done
+
+      - name: Stage artifact
+        run: |
+          mkdir -p dist
+          cp orion2re/build/orion2re.exe        dist/
+          cp orion2re/build/orion2re-router.exe dist/
+          # Runtime data produced by the package-runtime-data target
+          cp -r orion2re/build/data dist/data
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orion2re-windows-x64-clang64-static
+          path: dist/
+          if-no-files-found: error
