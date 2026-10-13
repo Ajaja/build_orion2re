@@ -11,14 +11,20 @@ jobs:
         shell: msys2 {0}
 
     steps:
-      # Clone orion2re with all vendored submodules (SDL, libuv, lz4, miniz,
-      # yyjson, lua, imgui, ...). The CMakeLists.txt fails without them.
       - name: Clone orion2re
         uses: actions/checkout@v4
         with:
           repository: orion2re/orion2re
           submodules: recursive
           path: orion2re
+
+      - name: Get commit date and hash
+        id: ver
+        shell: bash
+        working-directory: orion2re
+        run: |
+          echo "date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "hash=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Setup MSYS2 CLANG64
         uses: msys2/setup-msys2@v2
@@ -74,6 +80,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: orion2re-windows-x64-clang64-static
+          name: orion2re-windows-x64-clang64-static-${{ steps.ver.outputs.date }}-${{ steps.ver.outputs.hash }}
           path: dist/
           if-no-files-found: error
